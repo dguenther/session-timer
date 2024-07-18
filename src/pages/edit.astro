@@ -1,0 +1,10 @@
+---
+import Layout from "../layouts/Layout.astro";
+import IntervalList from "../components/solid/IntervalList.jsx";
+---
+
+<Layout title="Edit | Session Timer">
+	<main class="container mx-auto px-4 pt-4 text-center">
+        <IntervalList client:only="solid-js" />
+	</main>
+</Layout>

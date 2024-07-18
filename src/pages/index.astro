@@ -1,0 +1,130 @@
+---
+import Layout from "../layouts/Layout.astro";
+
+---
+
+<Layout title="Session Timer">
+	<main class="container mx-auto text-center">
+		<audio preload="auto" id="beepaudio" src="/session-timer/680825_177850-lq.mp3"
+		></audio>
+		<div class="px-4 pt-4">
+			<div class="mb-4">
+				<button data-start-timer class="font-semibold border border-white rounded py-2 px-4">Start</button>
+				<a href="/session-timer/edit" data-edit-link class="font-semibold border border-white rounded py-2 px-4 inline-block">Edit</a>
+			</div>
+			<div data-interval-name class="text-2xl">Done</div>
+		</div>
+		<div data-remaining-time class="font-mono text-7xl sm:text-9xl font-bold">00:00:00</div>
+	</main>
+</Layout>
+
+<script>
+	const startTimer = document.querySelector(
+		"[data-start-timer]",
+	)! as HTMLButtonElement;
+
+	const intervalEditLink = document.querySelector(
+		"[data-edit-link]",
+	)! as HTMLAnchorElement;
+	intervalEditLink.href = `/session-timer/edit${window.location.hash}`
+
+	const intervalName = document.querySelector("[data-interval-name]")! as HTMLDivElement;
+	const remaining = document.querySelector(
+		"[data-remaining-time]",
+	)! as HTMLDivElement;
+
+	const beepaudio = document.getElementById("beepaudio")! as HTMLAudioElement;
+
+	function base64ToJS(base64: string) {
+		if (base64.startsWith("#")) {
+			base64 = base64.slice(1);
+		}
+
+		if (base64.length === 0) {
+			return null
+		}
+
+		const binString = atob(base64);
+		return JSON.parse(
+			new TextDecoder().decode(
+				Uint8Array.from(binString, (m) => m.codePointAt(0)),
+			),
+		);
+	}
+
+	function renderTime(milliseconds: number): string {
+		const seconds = Math.trunc(milliseconds / 1000)
+		const secondsAsMillis = seconds * 1000
+		const centiseconds = Math.trunc((milliseconds - secondsAsMillis) / 10)
+
+		const renderSeconds = seconds.toString().padStart(2, '0')
+		const renderCs = centiseconds.toString().padStart(2, '0')
+		return `00:${renderSeconds}:${renderCs}`
+	}
+
+	// load intervals from hash
+	const intervals = base64ToJS(window.location.hash) as [string, number][] ?? [['New Interval', 10]];
+
+	let start: number
+	let wakeLock: WakeLockSentinel
+
+	startTimer.addEventListener("click", async () => {
+		if (intervals.length === 0) {
+			return;
+		}
+
+		// iOS requires audio to play as a direct result of a user interaction,
+		// otherwise audio won't work later on.
+		beepaudio.play();
+
+		let currentInterval = 0;
+		let accumulatedSetTime = intervals[currentInterval][1] * 1000;
+
+		start = performance.now();
+		let remainingTime = 0;
+
+		const callback = () => {		
+			const time = performance.now();
+			while (time - start > accumulatedSetTime) {
+				beepaudio.play();
+				currentInterval++;
+				if (currentInterval >= intervals.length) {
+					if (!wakeLock.released) {
+						wakeLock.release()
+					}
+
+					intervalName.innerText = "Done";
+					remaining.innerText = "00:00:00";
+					return;
+				}
+				accumulatedSetTime += intervals[currentInterval][1] * 1000;
+			}
+
+			remainingTime = accumulatedSetTime - (time - start)
+			
+			// use setTimeout because requestAnimationFrame doesn't run in background tabs
+			setTimeout(callback, 10);
+		};
+
+		const renderCallback = () => {
+			if (currentInterval >= intervals.length) {
+				return;
+			}
+			intervalName.innerText = intervals[currentInterval][0];
+			remaining.innerText = renderTime(remainingTime);
+			requestAnimationFrame(renderCallback);
+		};
+
+		callback();
+		renderCallback();
+
+		try {
+			if (!wakeLock || (wakeLock && wakeLock.released)) {
+				wakeLock = await navigator.wakeLock.request("screen");
+			}
+		} catch (err) {
+			// the wake lock request fails - usually system related, such being low on battery
+			console.log(`${err.name}, ${err.message}`);
+		}
+	});
+</script>
